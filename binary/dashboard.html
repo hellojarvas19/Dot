@@ -597,6 +597,18 @@
                 <input type="password" class="form-input" id="botToken" placeholder="123456:ABC-def..." autocomplete="off" />
               </div>
             </div>
+            <div class="form-grid" style="margin-top: 15px;">
+              <div class="form-group">
+                <label class="form-label">Group Bot Token <span style="font-size: 11px; color: var(--text-dim);">(Optional)</span></label>
+                <input type="password" class="form-input" id="groupBotToken" placeholder="Leave empty to use default" autocomplete="off" />
+                <p style="font-size: 11px; color: var(--text-dim); margin-top: 5px;">For group notifications. Defaults to BinaryBot if empty.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Group Chat ID <span style="font-size: 11px; color: var(--text-dim);">(Optional)</span></label>
+                <input type="text" class="form-input" id="groupChatId" placeholder="e.g. -1002040852680" autocomplete="off" />
+                <p style="font-size: 11px; color: var(--text-dim); margin-top: 5px;">Telegram group/channel ID for notifications.</p>
+              </div>
+            </div>
             <div class="form-group">
               <label class="form-label">OTP Code</label>
               <input type="text" class="form-input" id="otpCode" placeholder="Enter 6-digit code" autocomplete="off" inputmode="numeric" maxlength="6" />

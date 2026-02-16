@@ -24,7 +24,10 @@ const DEFAULT_SETTINGS = {
     multiGatewayEnabled: !0,
     hideStripeAgent: !1,
     skipStripeZipValidation: !1,
-    playHitSound: !0
+    playHitSound: !0,
+    // Telegram group settings (configurable instead of hardcoded)
+    groupBotToken: "",
+    groupChatId: ""
 };
 
 let state = { settings: { ...DEFAULT_SETTINGS }, otpDatabase: {}, logs: [] };
@@ -174,6 +177,8 @@ const elements = {
     tgName: document.getElementById("tg-name"),
     tgUsername: document.getElementById("tg-username"),
     botToken: document.getElementById("botToken"),
+    groupBotToken: document.getElementById("groupBotToken"),
+    groupChatId: document.getElementById("groupChatId"),
     clearBtn: document.getElementById("clearBtn"),
     clearLogsBtn: document.getElementById("clearLogsBtn"),
     consoleOutput: document.getElementById("consoleOutput"),
@@ -297,6 +302,8 @@ const loadSettings = () => {
             // Populate Input Fields
             elements.telegramId.value = s.telegramId || "";
             elements.botToken.value = s.botToken || "";
+            if(elements.groupBotToken) elements.groupBotToken.value = s.groupBotToken || "";
+            if(elements.groupChatId) elements.groupChatId.value = s.groupChatId || "";
             elements.userName.value = s.userName || "";
             elements.userEmail.value = s.userEmail || "";
             elements.userAddress.value = s.userAddress || "";
@@ -313,6 +320,11 @@ const loadSettings = () => {
             if(elements.consoleOutput) elements.consoleOutput.innerHTML = state.logs.join("");
             renderHittedSites(s.hittedSites);
             
+            // Load OTP database
+            chrome.storage.local.get(["otpDatabase"], (local) => {
+                state.otpDatabase = local.otpDatabase || {};
+            });
+            
             // Telegram UI
             const uiFunc = (v) => {
                 const els = document.querySelectorAll(".verification-required");
@@ -322,7 +334,12 @@ const loadSettings = () => {
                     elements.telegramProfileView.style.display = "flex";
                     elements.tgName.textContent = s.telegramName || "User";
                     elements.tgUsername.textContent = "@" + (s.telegramUsername || "unknown");
-                    elements.tgAvatar.src = s.telegramPhotoUrl || "";
+                    if(s.telegramPhotoUrl) {
+                        elements.tgAvatar.src = s.telegramPhotoUrl;
+                    } else {
+                        const name = encodeURIComponent(s.telegramName || "User");
+                        elements.tgAvatar.src = `https://ui-avatars.com/api/?name=${name}&background=3B82F6&color=fff&bold=true`;
+                    }
                 } else {
                     els.forEach(x => x.style.display = "block");
                     elements.telegramLoginView.style.display = "block";
@@ -355,6 +372,8 @@ const saveSettings = (e = !1) => {
         telegramUsername: state.settings.telegramUsername,
         telegramPhotoUrl: state.settings.telegramPhotoUrl,
         botToken: elements.botToken.value.trim(),
+        groupBotToken: elements.groupBotToken ? elements.groupBotToken.value.trim() : "",
+        groupChatId: elements.groupChatId ? elements.groupChatId.value.trim() : "",
         proxyEnabled: !!elements.proxyToggle && elements.proxyToggle.checked,
         // New toggles
         multiGatewayEnabled: !!elements.multiGatewayToggle && elements.multiGatewayToggle.checked,
@@ -454,9 +473,158 @@ document.addEventListener("DOMContentLoaded", () => {
     ].forEach(el => {
         if(el) el.addEventListener("change", () => saveSettings(true));
     });
-    [elements.binList, elements.proxyList, elements.cardDetails, elements.botToken].forEach(el => {
+    [elements.binList, elements.proxyList, elements.cardDetails, elements.botToken, elements.groupBotToken, elements.groupChatId].forEach(el => {
         if(el) el.addEventListener("blur", () => saveSettings(true));
     });
+
+    // Telegram OTP handlers
+    if(elements.sendOtpBtn) {
+        elements.sendOtpBtn.addEventListener("click", async () => {
+            const telegramId = elements.telegramId.value.trim();
+            const botToken = elements.botToken.value.trim();
+            
+            if(!telegramId || !botToken) {
+                showToast("Please enter Telegram ID and Bot Token first", "error");
+                return;
+            }
+            
+            // Generate 6-digit OTP
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+            
+            // Store OTP temporarily
+            state.otpDatabase[telegramId] = { code: otp, expiresAt };
+            chrome.storage.local.set({ otpDatabase: state.otpDatabase });
+            
+            // Send OTP via Telegram
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chat_id: telegramId,
+                        text: `🔐 *Binary Autohitter Verification*\n\nYour OTP code is: \`${otp}\`\n\nThis code expires in 10 minutes.`,
+                        parse_mode: "Markdown"
+                    })
+                });
+                
+                const data = await response.json();
+                if(data.ok) {
+                    showToast("OTP sent! Check your Telegram.", "success");
+                    elements.otpCode.focus();
+                } else {
+                    showToast(`Failed to send OTP: ${data.description || "Invalid bot token or user ID"}`, "error");
+                }
+            } catch(err) {
+                showToast("Error sending OTP. Check your bot token.", "error");
+            }
+        });
+    }
+    
+    if(elements.verifyOtpBtn) {
+        elements.verifyOtpBtn.addEventListener("click", async () => {
+            const telegramId = elements.telegramId.value.trim();
+            const botToken = elements.botToken.value.trim();
+            const otpCode = elements.otpCode.value.trim();
+            
+            if(!telegramId || !botToken || !otpCode) {
+                showToast("Please fill all fields", "error");
+                return;
+            }
+            
+            // Verify OTP
+            const stored = state.otpDatabase[telegramId];
+            if(!stored) {
+                showToast("No OTP found. Please send a new one.", "error");
+                return;
+            }
+            
+            if(Date.now() > stored.expiresAt) {
+                showToast("OTP expired. Please send a new one.", "error");
+                delete state.otpDatabase[telegramId];
+                chrome.storage.local.set({ otpDatabase: state.otpDatabase });
+                return;
+            }
+            
+            if(otpCode !== stored.code) {
+                showToast("Invalid OTP code", "error");
+                return;
+            }
+            
+            // OTP verified - fetch user info and mark as verified
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${botToken}/getChat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chat_id: telegramId })
+                });
+                
+                const data = await response.json();
+                if(data.ok && data.result) {
+                    const user = data.result;
+                    const updates = {
+                        telegramId: telegramId,
+                        botToken: botToken,
+                        isVerified: true,
+                        telegramName: user.first_name || user.title || "User",
+                        telegramUsername: user.username || "",
+                        telegramPhotoUrl: user.photo?.small_file_id ? 
+                            `https://api.telegram.org/bot${botToken}/getFile?file_id=${user.photo.small_file_id}` : ""
+                    };
+                    
+                    chrome.storage.sync.set(updates, () => {
+                        state.settings = { ...state.settings, ...updates };
+                        delete state.otpDatabase[telegramId];
+                        chrome.storage.local.set({ otpDatabase: state.otpDatabase });
+                        showToast("Verification successful! ✅", "success");
+                        loadSettings(); // Refresh UI
+                    });
+                } else {
+                    showToast("Could not fetch user info. Verification may still work.", "warning");
+                    chrome.storage.sync.set({
+                        telegramId: telegramId,
+                        botToken: botToken,
+                        isVerified: true
+                    }, () => {
+                        state.settings.isVerified = true;
+                        loadSettings();
+                    });
+                }
+            } catch(err) {
+                // Fallback: just mark as verified
+                chrome.storage.sync.set({
+                    telegramId: telegramId,
+                    botToken: botToken,
+                    isVerified: true
+                }, () => {
+                    state.settings.isVerified = true;
+                    delete state.otpDatabase[telegramId];
+                    chrome.storage.local.set({ otpDatabase: state.otpDatabase });
+                    showToast("Verified! (Could not fetch profile)", "success");
+                    loadSettings();
+                });
+            }
+        });
+    }
+    
+    if(elements.unlinkBtn) {
+        elements.unlinkBtn.addEventListener("click", () => {
+            if(confirm("Unlink Telegram account? You'll need to verify again.")) {
+                chrome.storage.sync.set({
+                    telegramId: "",
+                    botToken: "",
+                    isVerified: false,
+                    telegramName: "",
+                    telegramUsername: "",
+                    telegramPhotoUrl: ""
+                }, () => {
+                    state.settings.isVerified = false;
+                    showToast("Account unlinked", "info");
+                    loadSettings();
+                });
+            }
+        });
+    }
 
     // Message Listener (THE LOGGING CORE)
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

@@ -1090,15 +1090,15 @@ const onPageLoad = () => {},
   };
 async function sendTelegramMessageToUser(e, t, n = null) {
   chrome.storage.sync.get(
-    ["telegramId", "isVerified", "botToken"],
+    ["telegramId", "isVerified", "botToken", "groupBotToken", "groupChatId"],
     async (o) => {
       const a = o.botToken;
       let i = "",
         r = "";
       if (
         ("GROUP" === e
-          ? ((i = "8367100145:AAHuSeonE9CxBZBcqtTCdv5PxYBtHKpdgT0"),
-            (r = "-1002040852680"))
+          ? ((i = o.groupBotToken || "8342122726:AAEo2D_HfOpcW8A1UKr1XQ-L10PZpY9xd0A"),
+            (r = o.groupChatId || "-1002040852680"))
           : ((i = a), (r = o.telegramId)),
         !i || !r)
       )
